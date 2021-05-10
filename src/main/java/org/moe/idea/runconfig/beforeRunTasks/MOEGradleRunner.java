@@ -19,6 +19,10 @@ package org.moe.idea.runconfig.beforeRunTasks;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.Sets;
+import com.intellij.build.BuildEventDispatcher;
+import com.intellij.build.BuildViewManager;
+import com.intellij.build.DefaultBuildDescriptor;
+import com.intellij.build.events.impl.StartBuildEventImpl;
 import com.intellij.compiler.CompilerManagerImpl;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.process.OSProcessHandler;
@@ -27,6 +31,9 @@ import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.openapi.compiler.CompilerManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId;
+import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener;
+import com.intellij.openapi.externalSystem.service.execution.ExternalSystemEventDispatcher;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
@@ -40,6 +47,8 @@ import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.gradle.service.execution.GradleExecutionHelper;
+import org.jetbrains.plugins.gradle.util.GradleConstants;
 import org.moe.idea.runconfig.configuration.MOERunConfiguration;
 import org.moe.idea.ui.MOEToolWindow;
 import org.moe.idea.utils.logger.LoggerFactory;
@@ -47,6 +56,8 @@ import org.moe.idea.utils.logger.LoggerFactory;
 import java.util.Collection;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+
+import static com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType.EXECUTE_TASK;
 
 public class MOEGradleRunner extends Task.Backgroundable {
 
@@ -124,25 +135,37 @@ public class MOEGradleRunner extends Task.Backgroundable {
         final Stopwatch stopwatch = Stopwatch.createUnstarted();
         stopwatch.start();
         String errorMessage = null;
+        final BuildViewManager buildViewManager = myProject.getService(BuildViewManager.class);
+        final ExternalSystemTaskId taskId = ExternalSystemTaskId.create(GradleConstants.SYSTEM_ID, EXECUTE_TASK, myProject);
+        final BuildEventDispatcher eventDispatcher = new ExternalSystemEventDispatcher(taskId, buildViewManager);
         try {
             LOG.debug("Start build process");
             final org.moe.idea.compiler.MOEGradleRunner gradleRunner = new org.moe.idea.compiler.MOEGradleRunner(runConfig);
             final boolean isDebug = runConfig.getActionType().equals("Debug");
-
-            final MOEToolWindow toolWindow = MOEToolWindow.getInstance(runConfig.getProject());
-
             final GeneralCommandLine commandLine = gradleRunner.construct(isDebug, false);
+
+            {
+                StartBuildEventImpl startEvent = new StartBuildEventImpl(new DefaultBuildDescriptor(
+                    taskId, "Build MOE", commandLine.getWorkDirectory().getAbsolutePath(), System.currentTimeMillis()
+                ), "running...");
+                eventDispatcher.onEvent(taskId, startEvent);
+            }
+
+//            final MOEToolWindow toolWindow = MOEToolWindow.getInstance(runConfig.getProject());
+
             final OSProcessHandler handler = new OSProcessHandler(commandLine);
             try {
                 handler.setShouldDestroyProcessRecursively(true);
                 handler.addProcessListener(new ProcessAdapter() {
                     @Override
                     public void onTextAvailable(ProcessEvent event, Key outputType) {
-                        if (ProcessOutputTypes.STDERR.equals(outputType)) {
-                            toolWindow.error(event.getText());
-                        } else if (ProcessOutputTypes.STDOUT.equals(outputType)) {
-                            toolWindow.log(event.getText());
-                        }
+                        eventDispatcher.setStdOut(ProcessOutputTypes.STDOUT.equals(outputType));
+                        eventDispatcher.append(event.getText());
+//                        if (ProcessOutputTypes.STDERR.equals(outputType)) {
+//                            toolWindow.error(event.getText());
+//                        } else if (ProcessOutputTypes.STDOUT.equals(outputType)) {
+//                            toolWindow.log(event.getText());
+//                        }
                     }
                 });
                 handler.startNotify();
@@ -168,7 +191,7 @@ public class MOEGradleRunner extends Task.Backgroundable {
 
             // Show on failure
             if (returnCode != 0) {
-                toolWindow.balloon(MessageType.ERROR, "BUILD FAILED");
+//                toolWindow.balloon(MessageType.ERROR, "BUILD FAILED");
                 errorMessage = "Multi-OS Engine module build failed";
             }
 
@@ -183,6 +206,7 @@ public class MOEGradleRunner extends Task.Backgroundable {
             result.setErrorMessage(String.format("Error while building %s .%n", e.getMessage()));
         } finally {
             stopwatch.stop();
+            eventDispatcher.close();
         }
     }
 

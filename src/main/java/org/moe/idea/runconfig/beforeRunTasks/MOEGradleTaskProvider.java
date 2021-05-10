@@ -148,17 +148,17 @@ public class MOEGradleTaskProvider extends BeforeRunTaskProvider<MOEGradleTask> 
             return false;
         }
 
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                String errorMessage = errorMsgRef.get();
-
-                if (errorMessage != null) {
-                    MOEToolWindow toolWindow = MOEToolWindow.getInstance(env.getProject());
-                    toolWindow.printErrorMessage(errorMessage);
-                }
-            }
-        });
+//        ApplicationManager.getApplication().invokeLater(new Runnable() {
+//            @Override
+//            public void run() {
+//                String errorMessage = errorMsgRef.get();
+//
+//                if (errorMessage != null) {
+//                    MOEToolWindow toolWindow = MOEToolWindow.getInstance(env.getProject());
+//                    toolWindow.printErrorMessage(errorMessage);
+//                }
+//            }
+//        });
 
         return success.get();
     }

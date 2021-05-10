@@ -18,8 +18,17 @@ package org.moe.idea.compiler;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
+import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.gradle.settings.DistributionType;
+import org.jetbrains.plugins.gradle.settings.GradleExecutionSettings;
+import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
+import org.jetbrains.plugins.gradle.settings.GradleSettings;
+import org.jetbrains.plugins.gradle.util.GradleConstants;
 import org.moe.common.configuration.RemoteSettings;
 import org.moe.common.exec.GradleExec;
 import org.moe.idea.MOEGlobalSettings;
@@ -27,10 +36,7 @@ import org.moe.idea.runconfig.configuration.MOERunConfiguration;
 import org.moe.idea.utils.ModuleUtils;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 
 public class MOEGradleRunner {
 
@@ -41,6 +47,40 @@ public class MOEGradleRunner {
             throw new NullPointerException();
         }
         this.runConfig = runConfig;
+    }
+
+    @Nullable
+    public static GradleProjectSettings findGradleProjectSettings(@NotNull Project project) {
+        GradleSettings settings = (GradleSettings) ExternalSystemApiUtil.getSettings(project, GradleConstants.SYSTEM_ID);
+
+        GradleSettings.MyState state = settings.getState();
+        assert state != null;
+        Set<GradleProjectSettings> allProjectsSettings = state.getLinkedExternalProjectsSettings();
+
+        if (allProjectsSettings == null) {
+            return null;
+        }
+        return allProjectsSettings.stream().filter(Objects::nonNull).findFirst().orElse(null);
+    }
+
+    @NotNull
+    public static GradleExecutionSettings getGradleExecutionSettings(@NotNull Project project) {
+        GradleExecutionSettings settings = null;
+
+        GradleProjectSettings projectSettings = findGradleProjectSettings(project);
+        if (projectSettings != null) {
+            try {
+                settings = ExternalSystemApiUtil.getExecutionSettings(project, projectSettings.getExternalProjectPath(), GradleConstants.SYSTEM_ID);
+            } catch (IllegalArgumentException e) {
+                e.printStackTrace();
+            }
+        }
+
+        if (settings == null) {
+            settings = new GradleExecutionSettings(null, null, DistributionType.BUNDLED, null, false);
+        }
+
+        return settings;
     }
 
     public static GeneralCommandLine construct(Module module, String... args) {
